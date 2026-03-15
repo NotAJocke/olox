@@ -1,5 +1,28 @@
 open Token
 
+(*
+
+TODO: Rewrite the scan method in a more functional way.
+
+1. Redefine scanToken to be Pure:
+- Change scanToken so it no longer reads/writes global ref variables.
+- It should take (source, current_index) as input.
+- It should return a tuple or a record: (new_token_option, next_index, line_increment).
+
+2. Replace the while loop with a Recursive loop:
+- Create a nested rec function (often called aux or loop).
+- Input: current_index, current_line, and the token_list accumulator.
+- Base Case: If isAtEnd, append EOF and return List.rev tokens.
+- Recursive Step: Call your new scanToken, prepend the result to your list, and call loop with the new index.
+
+3. Handle Multi-character Tokens Functionally:
+- Refactor parse_string and parse_number to be recursive. Instead of while loops, they should call themselves with current + 1 until they hit the delimiter, then return the final index and the extracted string.
+
+4. Adopt the Option pattern for Errors:
+- Instead of hadError being a global boolean, consider having your final scan function return a Result type: Ok(token_list) or Error(error_report).
+
+*)
+
 let report line where message =
   Printf.eprintf "[line %d] Error %s: %s" line where message
 
@@ -48,6 +71,24 @@ let scan source =
           skip_to_newline ()
     in
 
+    let parse_string () =
+      while peek () <> Some '"' && not (isAtEnd ()) do
+        if peek () = Some '\n' then line := !line + 1;
+        ignore (advance ())
+      done;
+
+      if isAtEnd () then begin
+        error !line "Unterminated string.";
+        hadError := true
+      end
+      else begin
+        ignore (advance ());
+
+        let value = String.sub source (!start + 1) (!current - !start - 2) in
+        addToken STRING (String value)
+      end
+    in
+
     let addTokenWoLiteral kind = addToken kind No in
 
     let c = advance () in
@@ -71,6 +112,7 @@ let scan source =
     | '\r' -> ()
     | '\t' -> ()
     | '\n' -> line := !line + 1
+    | '"' -> parse_string ()
     | _ ->
         error !line "Unexpected character.";
         hadError := true
