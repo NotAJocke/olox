@@ -7,7 +7,7 @@ let run source =
 
   for i = 0 to List.length tokens - 1 do
     let token = List.nth tokens i in
-    print_endline (Token.string_of_token token)
+    print_endline (Token.to_string token)
   done
 
 let runFile filename =

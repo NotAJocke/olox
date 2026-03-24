@@ -1,5 +1,3 @@
-open Token
-
 (*
 
 TODO: Rewrite the scan method in a more functional way.
@@ -33,22 +31,22 @@ module StringMap = Map.Make (String)
 let keywords =
   StringMap.of_list
     [
-      ("and", AND);
-      ("class", CLASS);
-      ("else", ELSE);
-      ("false", FALSE);
-      ("for", FOR);
-      ("fun", FUN);
-      ("if", IF);
-      ("nil", NIL);
-      ("or", OR);
-      ("print", PRINT);
-      ("return", RETURN);
-      ("super", SUPER);
-      ("this", THIS);
-      ("true", TRUE);
-      ("var", VAR);
-      ("while", WHILE);
+      ("and", Token.AND);
+      ("class", Token.CLASS);
+      ("else", Token.ELSE);
+      ("false", Token.FALSE);
+      ("for", Token.FOR);
+      ("fun", Token.FUN);
+      ("if", Token.IF);
+      ("nil", Token.NIL);
+      ("or", Token.OR);
+      ("print", Token.PRINT);
+      ("return", Token.RETURN);
+      ("super", Token.SUPER);
+      ("this", Token.THIS);
+      ("true", Token.TRUE);
+      ("var", Token.VAR);
+      ("while", Token.WHILE);
     ]
 
 let scan source =
@@ -57,7 +55,7 @@ let scan source =
   let start = ref 0 in
   let current = ref 0 in
   let line = ref 1 in
-  let tokens : token list ref = ref [] in
+  let tokens : Token.t list ref = ref [] in
 
   let isAtEnd () = !current >= total in
 
@@ -68,7 +66,7 @@ let scan source =
       c
     in
 
-    let addToken kind =
+    let addToken (kind : Token.kind) =
       let text = String.sub source !start (!current - !start) in
       tokens := { kind; lexeme = text; line = !line } :: !tokens
     in

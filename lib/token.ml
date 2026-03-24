@@ -1,4 +1,4 @@
-type token_kind =
+type kind =
   (* Single-character tokens. *)
   | LEFT_PAREN
   | RIGHT_PAREN
@@ -88,6 +88,6 @@ let string_of_kind = function
   | WHILE -> "WHILE"
   | EOF -> "EOF"
 
-type token = { kind : token_kind; lexeme : string; line : int }
+type t = { kind : kind; lexeme : string; line : int }
 
-let string_of_token t = Printf.sprintf "%s %s" (string_of_kind t.kind) t.lexeme
+let to_string t = Printf.sprintf "%s %s" (string_of_kind t.kind) t.lexeme

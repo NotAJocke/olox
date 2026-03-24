@@ -1,2 +1,4 @@
 (library
- (name olox))
+ (name olox)
+ (modules token scanner)
+ )
