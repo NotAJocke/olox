@@ -63,6 +63,11 @@ let scan source =
       if isAtEnd () then None else Some (String.get source !current)
     in
 
+    let peekNext () =
+      if !current + 1 >= total then None
+      else Some (String.get source (!current + 1))
+    in
+
     let rec skip_to_newline () =
       match peek () with
       | Some '\n' | None -> ()
@@ -89,7 +94,32 @@ let scan source =
       end
     in
 
+    let is_digit c = c >= '0' && c <= '9' in
+
     let addTokenWoLiteral kind = addToken kind No in
+
+    let parse_number () =
+      let rec skip_number () =
+        match peek () with
+        | Some c when is_digit c ->
+            ignore (advance ());
+            skip_number ()
+        | _ -> ()
+      in
+
+      skip_number ();
+
+      if peek () = Some '.' then
+        match peekNext () with
+        | Some c when is_digit c ->
+            ignore (advance ());
+            skip_number ()
+        | _ -> ()
+      else ();
+
+      let text = String.sub source !start (!current - !start) in
+      addToken NUMBER (FloatNumber (float_of_string text))
+    in
 
     let c = advance () in
     match c with
@@ -114,7 +144,8 @@ let scan source =
     | '\n' -> line := !line + 1
     | '"' -> parse_string ()
     | _ ->
-        error !line "Unexpected character.";
+        if is_digit c then parse_number ()
+        else error !line "Unexpected character.";
         hadError := true
   in
 
@@ -124,7 +155,6 @@ let scan source =
   done;
 
   tokens :=
-    { kind = EOF; lexeme = ""; literal = (No : literal); line = !line }
-    :: !tokens;
+    { kind = EOF; lexeme = ""; literal = Literal.No; line = !line } :: !tokens;
 
   List.rev !tokens

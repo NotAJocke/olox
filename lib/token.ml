@@ -88,12 +88,14 @@ let string_of_kind = function
   | WHILE -> "WHILE"
   | EOF -> "EOF"
 
-type literal = String of string | Number of int | No
+module Literal = struct
+  type t = String of string | FloatNumber of float | IntNumber of int | No
+end
 
 type token = {
   kind : token_kind;
   lexeme : string;
-  literal : literal;
+  literal : Literal.t;
   line : int;
 }
 
@@ -101,5 +103,6 @@ let string_of_token t =
   Printf.sprintf "%s %s %s" (string_of_kind t.kind) t.lexeme
     (match t.literal with
     | String s -> s
-    | Number n -> string_of_int n
+    | FloatNumber n -> string_of_float n
+    | IntNumber n -> string_of_int n
     | No -> "null")
