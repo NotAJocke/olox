@@ -3,7 +3,7 @@ open Olox
 let printUsage () = print_endline "Usage: olox [script]"
 
 let run source =
-  let tokens = Scanner.scan source in
+  let tokens, _errors = Scanner.scan source in
 
   for i = 0 to List.length tokens - 1 do
     let token = List.nth tokens i in
