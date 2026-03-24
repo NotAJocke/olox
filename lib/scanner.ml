@@ -28,6 +28,29 @@ let report line where message =
 
 let error line message = report line "" message
 
+module StringMap = Map.Make (String)
+
+let keywords =
+  StringMap.of_list
+    [
+      ("and", AND);
+      ("class", CLASS);
+      ("else", ELSE);
+      ("false", FALSE);
+      ("for", FOR);
+      ("fun", FUN);
+      ("if", IF);
+      ("nil", NIL);
+      ("or", OR);
+      ("print", PRINT);
+      ("return", RETURN);
+      ("super", SUPER);
+      ("this", THIS);
+      ("true", TRUE);
+      ("var", VAR);
+      ("while", WHILE);
+    ]
+
 let scan source =
   let hadError = ref false in
   let total = String.length source in
@@ -96,6 +119,12 @@ let scan source =
 
     let is_digit c = c >= '0' && c <= '9' in
 
+    let is_alpha c =
+      (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+    in
+
+    let is_alpha_numeric c = is_alpha c || is_digit c in
+
     let parse_number () =
       let rec skip_number () =
         match peek () with
@@ -117,6 +146,23 @@ let scan source =
 
       let text = String.sub source !start (!current - !start) in
       addToken (NUMBER (float_of_string text))
+    in
+
+    let parse_identifier () =
+      let rec skip_ident () =
+        match peek () with
+        | Some c when is_alpha_numeric c ->
+            ignore (advance ());
+            skip_ident ()
+        | _ -> ()
+      in
+
+      skip_ident ();
+
+      let text = String.sub source !start (!current - !start) in
+      match StringMap.find_opt text keywords with
+      | Some t -> addToken t
+      | _ -> addToken (IDENTIFIER text)
     in
 
     let c = advance () in
@@ -143,6 +189,7 @@ let scan source =
     | '"' -> parse_string ()
     | _ ->
         if is_digit c then parse_number ()
+        else if is_alpha c then parse_identifier ()
         else error !line "Unexpected character.";
         hadError := true
   in
