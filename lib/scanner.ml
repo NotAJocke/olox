@@ -45,9 +45,9 @@ let scan source =
       c
     in
 
-    let addToken kind literal =
+    let addToken kind =
       let text = String.sub source !start (!current - !start) in
-      tokens := { kind; lexeme = text; literal; line = !line } :: !tokens
+      tokens := { kind; lexeme = text; line = !line } :: !tokens
     in
 
     let expect expected =
@@ -90,13 +90,11 @@ let scan source =
         ignore (advance ());
 
         let value = String.sub source (!start + 1) (!current - !start - 2) in
-        addToken STRING (String value)
+        addToken (STRING value)
       end
     in
 
     let is_digit c = c >= '0' && c <= '9' in
-
-    let addTokenWoLiteral kind = addToken kind No in
 
     let parse_number () =
       let rec skip_number () =
@@ -118,26 +116,26 @@ let scan source =
       else ();
 
       let text = String.sub source !start (!current - !start) in
-      addToken NUMBER (FloatNumber (float_of_string text))
+      addToken (NUMBER (float_of_string text))
     in
 
     let c = advance () in
     match c with
-    | '(' -> addTokenWoLiteral LEFT_PAREN
-    | ')' -> addTokenWoLiteral RIGHT_PAREN
-    | '{' -> addTokenWoLiteral LEFT_BRACE
-    | '}' -> addTokenWoLiteral RIGHT_BRACE
-    | ',' -> addTokenWoLiteral COMMA
-    | '.' -> addTokenWoLiteral DOT
-    | '+' -> addTokenWoLiteral PLUS
-    | '-' -> addTokenWoLiteral MINUS
-    | '*' -> addTokenWoLiteral STAR
-    | ';' -> addTokenWoLiteral SEMICOLON
-    | '!' -> addTokenWoLiteral (if expect '=' then BANG_EQUAL else BANG)
-    | '=' -> addTokenWoLiteral (if expect '=' then EQUAL_EQUAL else EQUAL)
-    | '<' -> addTokenWoLiteral (if expect '=' then LESS_EQUAL else LESS)
-    | '>' -> addTokenWoLiteral (if expect '=' then GREATER_EQUAL else GREATER)
-    | '/' -> if expect '/' then skip_to_newline () else addTokenWoLiteral SLASH
+    | '(' -> addToken LEFT_PAREN
+    | ')' -> addToken RIGHT_PAREN
+    | '{' -> addToken LEFT_BRACE
+    | '}' -> addToken RIGHT_BRACE
+    | ',' -> addToken COMMA
+    | '.' -> addToken DOT
+    | '+' -> addToken PLUS
+    | '-' -> addToken MINUS
+    | '*' -> addToken STAR
+    | ';' -> addToken SEMICOLON
+    | '!' -> addToken (if expect '=' then BANG_EQUAL else BANG)
+    | '=' -> addToken (if expect '=' then EQUAL_EQUAL else EQUAL)
+    | '<' -> addToken (if expect '=' then LESS_EQUAL else LESS)
+    | '>' -> addToken (if expect '=' then GREATER_EQUAL else GREATER)
+    | '/' -> if expect '/' then skip_to_newline () else addToken SLASH
     | ' ' -> ()
     | '\r' -> ()
     | '\t' -> ()
@@ -154,7 +152,6 @@ let scan source =
     scanToken ()
   done;
 
-  tokens :=
-    { kind = EOF; lexeme = ""; literal = Literal.No; line = !line } :: !tokens;
+  tokens := { kind = EOF; lexeme = ""; line = !line } :: !tokens;
 
   List.rev !tokens

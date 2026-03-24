@@ -21,9 +21,9 @@ type token_kind =
   | LESS
   | LESS_EQUAL
   (* Literals *)
-  | IDENTIFIER
-  | STRING
-  | NUMBER
+  | IDENTIFIER of string
+  | STRING of string
+  | NUMBER of float
   (* Keywords *)
   | AND
   | CLASS
@@ -66,9 +66,9 @@ let string_of_kind = function
   | LESS -> "LESS"
   | LESS_EQUAL -> "LESS_EQUAL"
   (* Literals *)
-  | IDENTIFIER -> "IDENTIFIER"
-  | STRING -> "STRING"
-  | NUMBER -> "NUMBER"
+  | IDENTIFIER s -> Format.sprintf "IDENT %s" s
+  | STRING s -> Format.sprintf "STRING %s" s
+  | NUMBER n -> Format.sprintf "NUMBER %f" n
   (* Keywords *)
   | AND -> "AND"
   | CLASS -> "CLASS"
@@ -88,21 +88,6 @@ let string_of_kind = function
   | WHILE -> "WHILE"
   | EOF -> "EOF"
 
-module Literal = struct
-  type t = String of string | FloatNumber of float | IntNumber of int | No
-end
+type token = { kind : token_kind; lexeme : string; line : int }
 
-type token = {
-  kind : token_kind;
-  lexeme : string;
-  literal : Literal.t;
-  line : int;
-}
-
-let string_of_token t =
-  Printf.sprintf "%s %s %s" (string_of_kind t.kind) t.lexeme
-    (match t.literal with
-    | String s -> s
-    | FloatNumber n -> string_of_float n
-    | IntNumber n -> string_of_int n
-    | No -> "null")
+let string_of_token t = Printf.sprintf "%s %s" (string_of_kind t.kind) t.lexeme
