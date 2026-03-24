@@ -22,7 +22,7 @@ TODO: Rewrite the scan method in a more functional way.
 *)
 
 let report line where message =
-  Printf.eprintf "[line %d] Error %s: %s" line where message
+  Printf.eprintf "[line %d] Error %s: %s\n%!" line where message
 
 let error line message = report line "" message
 
@@ -185,10 +185,10 @@ let scan source =
     | '\t' -> ()
     | '\n' -> line := !line + 1
     | '"' -> parse_string ()
+    | c when is_digit c -> parse_number ()
+    | c when is_alpha c -> parse_identifier ()
     | _ ->
-        if is_digit c then parse_number ()
-        else if is_alpha c then parse_identifier ()
-        else error !line "Unexpected character.";
+        error !line "Unexpected character.";
         hadError := true
   in
 
