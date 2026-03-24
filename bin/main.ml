@@ -27,6 +27,16 @@ let rec runPrompt () =
       runPrompt ()
 
 let () =
+  (* let ex = *)
+  (* Ast.Binary *)
+  (* ( Ast.Unary *)
+  (* ( { kind = Token.MINUS; lexeme = "-"; line = 1 }, *)
+  (* Ast.Literal (Ast.Number 123.0) ), *)
+  (* { kind = Token.STAR; lexeme = "*"; line = 1 }, *)
+  (* Ast.Grouping (Ast.Literal (Ast.Number 45.67)) ) *)
+  (* in *)
+
+  (* print_endline @@ Ast.print_ast ex *)
   let args = Sys.argv in
 
   match Array.length args with
