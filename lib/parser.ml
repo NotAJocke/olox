@@ -1,6 +1,12 @@
 type parser_state = { tokens : Token.t list; mutable current : int }
 
+exception ParseError of Token.t * string
+
 (* HELPERS *)
+
+let report line where message =
+  Printf.eprintf "[line %d] Error %s: %s\n%!" line where message
+
 let peek (s : parser_state) = List.nth s.tokens s.current
 let previous (s : parser_state) = List.nth s.tokens (s.current - 1)
 
@@ -13,9 +19,83 @@ let advance (s : parser_state) =
 
   previous s
 
-(* PARSER METHODS *)
+let error (token : Token.t) msg =
+  let location =
+    match token.kind with
+    | Token.EOF -> " at end"
+    | _ -> " at '" ^ token.lexeme ^ "'"
+  in
+  report token.line location msg;
+  raise (ParseError (token, msg))
 
-let parse_primary (s : parser_state) =
+let consume (s : parser_state) expected_kind msg =
+  if (peek s).kind = expected_kind then advance s else error (peek s) msg
+
+(* PARSER METHODS *)
+let rec parse_expression s = parse_equality s
+
+and parse_equality (s : parser_state) =
+  let rec handle_eq curr_expr =
+    match (peek s).kind with
+    | Token.EQUAL_EQUAL | Token.BANG_EQUAL ->
+        let op = advance s in
+        let right = parse_comparaison s in
+
+        handle_eq (Ast.Binary (curr_expr, op, right))
+    | _ -> curr_expr
+  in
+
+  let expr = parse_comparaison s in
+  handle_eq expr
+
+and parse_comparaison s =
+  let rec handle_comp current =
+    match (peek s).kind with
+    | Token.GREATER | Token.GREATER_EQUAL | Token.LESS | Token.LESS_EQUAL ->
+        let op = advance s in
+        let right = parse_term s in
+        handle_comp @@ Ast.Binary (current, op, right)
+    | _ -> current
+  in
+
+  let expr = parse_term s in
+  handle_comp expr
+
+and parse_term s =
+  let rec handle_term current =
+    match (peek s).kind with
+    | Token.PLUS | Token.MINUS ->
+        let op = advance s in
+        let right = parse_factor s in
+        handle_term @@ Ast.Binary (current, op, right)
+    | _ -> current
+  in
+
+  let expr = parse_factor s in
+  handle_term expr
+
+and parse_factor s =
+  let rec handle_factor current =
+    match (peek s).kind with
+    | Token.SLASH | Token.STAR ->
+        let op = advance s in
+        let right = parse_unary s in
+        handle_factor @@ Ast.Binary (current, op, right)
+    | _ -> current
+  in
+
+  let expr = parse_unary s in
+  handle_factor expr
+
+and parse_unary s =
+  match (peek s).kind with
+  | Token.BANG | Token.MINUS ->
+      let op = advance s in
+      let right = parse_unary s in
+      Ast.Unary (op, right)
+  | _ -> parse_primary s
+
+and parse_primary (s : parser_state) =
   match (peek s).kind with
   | Token.FALSE ->
       ignore @@ advance s;
@@ -32,67 +112,11 @@ let parse_primary (s : parser_state) =
   | Token.STRING str ->
       ignore @@ advance s;
       Ast.Literal (Ast.String str)
-  | _ -> failwith "TODO"
+  | Token.LEFT_PAREN ->
+      ignore @@ advance s;
+      let expr = parse_expression s in
 
-let rec parse_unary s =
-  match (peek s).kind with
-  | Token.BANG | Token.MINUS ->
-      let op = advance s in
-      let right = parse_unary s in
-      Ast.Unary (op, right)
-  | _ -> parse_primary s
+      ignore @@ consume s Token.RIGHT_PAREN "Expect ')' after expression";
 
-let parse_factor s =
-  let rec handle_factor current =
-    match (peek s).kind with
-    | Token.SLASH | Token.STAR ->
-        let op = advance s in
-        let right = parse_unary s in
-        handle_factor @@ Ast.Binary (current, op, right)
-    | _ -> current
-  in
-
-  let expr = parse_unary s in
-  handle_factor expr
-
-let parse_term s =
-  let rec handle_term current =
-    match (peek s).kind with
-    | Token.PLUS | Token.MINUS ->
-        let op = advance s in
-        let right = parse_factor s in
-        handle_term @@ Ast.Binary (current, op, right)
-    | _ -> current
-  in
-
-  let expr = parse_factor s in
-  handle_term expr
-
-let parse_comparaison s =
-  let rec handle_comp current =
-    match (peek s).kind with
-    | Token.GREATER | Token.GREATER_EQUAL | Token.LESS | Token.LESS_EQUAL ->
-        let op = advance s in
-        let right = parse_term s in
-        handle_comp @@ Ast.Binary (current, op, right)
-    | _ -> current
-  in
-
-  let expr = parse_term s in
-  handle_comp expr
-
-let parse_equality (s : parser_state) =
-  let rec handle_eq curr_expr =
-    match (peek s).kind with
-    | Token.EQUAL_EQUAL | Token.BANG_EQUAL ->
-        let op = advance s in
-        let right = parse_comparaison s in
-
-        handle_eq (Ast.Binary (curr_expr, op, right))
-    | _ -> curr_expr
-  in
-
-  let expr = parse_comparaison s in
-  handle_eq expr
-
-let parse_expression s = parse_equality s
+      Ast.Grouping expr
+  | _ -> failwith "Not yet"
