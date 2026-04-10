@@ -3,12 +3,16 @@ open Olox
 let printUsage () = print_endline "Usage: olox [script]"
 
 let run source =
-  let tokens, _errors = Scanner.scan source in
+  let tokens, errors = Scanner.scan source in
+  let expression = Parser.parse tokens in
 
-  for i = 0 to List.length tokens - 1 do
-    let token = List.nth tokens i in
-    print_endline (Token.to_string token)
-  done
+  if List.length errors > 0 || Option.is_none expression then ()
+  else print_endline @@ Ast.print_ast @@ Option.get expression
+
+(* for i = 0 to List.length tokens - 1 do *)
+(* let token = List.nth tokens i in *)
+(* print_endline (Token.to_string token) *)
+(* done *)
 
 let runFile filename =
   print_endline ("Running file: " ^ filename);

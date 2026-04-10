@@ -119,4 +119,26 @@ and parse_primary (s : parser_state) =
       ignore @@ consume s Token.RIGHT_PAREN "Expect ')' after expression";
 
       Ast.Grouping expr
-  | _ -> failwith "Not yet"
+  | _ -> error (peek s) "Expect expression."
+
+let synchronize (s : parser_state) =
+  let rec discard_tokens () =
+    if is_at_end s then ()
+    else if (previous s).kind = Token.SEMICOLON then ()
+    else
+      match (peek s).kind with
+      | Token.CLASS | Token.FUN | Token.VAR | Token.FOR | Token.IF | Token.WHILE
+      | Token.PRINT | Token.RETURN ->
+          ()
+      | _ ->
+          ignore @@ advance s;
+          discard_tokens ()
+  in
+
+  ignore @@ advance s;
+  discard_tokens ()
+
+let parse tokens =
+  let state = { tokens; current = 0 } in
+
+  try Some (parse_expression state) with ParseError _ -> None
