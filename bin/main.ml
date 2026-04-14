@@ -7,7 +7,10 @@ let run source =
   let expression = Parser.parse tokens in
 
   if List.length errors > 0 || Option.is_none expression then ()
-  else print_endline @@ Ast.print_ast @@ Option.get expression
+  else begin
+    let _had_runtime_error = Interpreter.interpret @@ Option.get expression in
+    ignore _had_runtime_error
+  end
 
 (* for i = 0 to List.length tokens - 1 do *)
 (* let token = List.nth tokens i in *)
@@ -31,16 +34,6 @@ let rec runPrompt () =
       runPrompt ()
 
 let () =
-  (* let ex = *)
-  (* Ast.Binary *)
-  (* ( Ast.Unary *)
-  (* ( { kind = Token.MINUS; lexeme = "-"; line = 1 }, *)
-  (* Ast.Literal (Ast.Number 123.0) ), *)
-  (* { kind = Token.STAR; lexeme = "*"; line = 1 }, *)
-  (* Ast.Grouping (Ast.Literal (Ast.Number 45.67)) ) *)
-  (* in *)
-
-  (* print_endline @@ Ast.print_ast ex *)
   let args = Sys.argv in
 
   match Array.length args with

@@ -1,5 +1,15 @@
 type literal = Number of float | String of string | Boolean of bool | Nil
 
+let string_of_literal literal =
+  match literal with
+  | Number n ->
+      let s = string_of_float n in
+      if String.ends_with ~suffix:"." s then String.sub s 0 (String.length s - 1)
+      else s
+  | String s -> s
+  | Boolean b -> string_of_bool b
+  | Nil -> "nil"
+
 type expr =
   | Binary of expr * Token.t * expr
   | Grouping of expr
