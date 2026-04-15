@@ -2,13 +2,13 @@ open Olox
 
 let printUsage () = print_endline "Usage: olox [script]"
 
-let run source =
+let run state source =
   let tokens, errors = Scanner.scan source in
-  let expression = Parser.parse tokens in
+  let statements = Parser.parse tokens in
 
-  if List.length errors > 0 || Option.is_none expression then ()
+  if List.length errors > 0 then ()
   else begin
-    let _had_runtime_error = Interpreter.interpret @@ Option.get expression in
+    let _had_runtime_error = Interpreter.interpret state statements in
     ignore _had_runtime_error
   end
 
@@ -21,22 +21,22 @@ let runFile filename =
   print_endline ("Running file: " ^ filename);
 
   let source = In_channel.with_open_bin filename In_channel.input_all in
-  run source
+  run { env = Environment.create () } source
 
-let rec runPrompt () =
+let rec runPrompt state =
   print_string "> ";
   flush stdout;
 
   match In_channel.input_line stdin with
   | None -> ()
   | Some line ->
-      run line;
-      runPrompt ()
+      run state line;
+      runPrompt state
 
 let () =
   let args = Sys.argv in
 
   match Array.length args with
-  | 1 -> runPrompt ()
+  | 1 -> runPrompt { env = Environment.create () }
   | 2 -> runFile args.(1)
   | _ -> printUsage ()

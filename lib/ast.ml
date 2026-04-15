@@ -11,10 +11,12 @@ let string_of_literal literal =
   | Nil -> "nil"
 
 type expr =
+  | Assign of Token.t * expr
   | Binary of expr * Token.t * expr
   | Grouping of expr
   | Literal of literal
   | Unary of Token.t * expr
+  | Variable of Token.t
 
 let rec print_ast = function
   | Literal (Number n) -> string_of_float n
@@ -25,3 +27,11 @@ let rec print_ast = function
   | Unary (op, right) -> "(" ^ op.lexeme ^ " " ^ print_ast right ^ ")"
   | Binary (left, op, right) ->
       "(" ^ op.lexeme ^ " " ^ print_ast left ^ " " ^ print_ast right ^ ")"
+  | Variable name -> name.lexeme
+  | Assign (name, value) -> "(= " ^ name.lexeme ^ " " ^ print_ast value ^ ")"
+
+type stmt =
+  | Block of stmt list
+  | Expression of expr
+  | Print of expr
+  | Var of Token.t * expr option

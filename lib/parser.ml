@@ -1,8 +1,32 @@
+open Errors
+
 type parser_state = { tokens : Token.t list; mutable current : int }
 
-exception ParseError of Token.t * string
-
 (* HELPERS *)
+(*
+  There's no `match` function like in the book as OCaml already has a match.
+  BUT, the match function in the book does more than matching, if a match 
+  is found, it calls the `advance` function and consume the token. So to mimic
+  this behaviour, i must match on the peek result's kind.
+
+  Ex:
+  ```java
+  if (match(IDENTIFIER)) {
+    return new Expr.Variable(previous());
+  }
+  ```
+
+  ```ocaml
+  match (peek s).kind with
+  | Token.IDENTIFIER _ -> Ast.Variable (advance s)
+                                        ^^^^^^^^^
+  ```
+
+  Note the fact that we need to consume the token ourselves.
+  
+  Same for the `check` method that is just a java `match` without consuming
+  the token. So it's just a simple OCaml match 
+ *)
 
 let report line where message =
   Printf.eprintf "[line %d] Error %s: %s\n%!" line where message
@@ -22,8 +46,8 @@ let advance (s : parser_state) =
 let error (token : Token.t) msg =
   let location =
     match token.kind with
-    | Token.EOF -> " at end"
-    | _ -> " at '" ^ token.lexeme ^ "'"
+    | Token.EOF -> "at end"
+    | _ -> "at '" ^ token.lexeme ^ "'"
   in
   report token.line location msg;
   raise (ParseError (token, msg))
@@ -32,7 +56,85 @@ let consume (s : parser_state) expected_kind msg =
   if (peek s).kind = expected_kind then advance s else error (peek s) msg
 
 (* PARSER METHODS *)
-let rec parse_expression s = parse_equality s
+let rec parse_declaration s =
+  try
+    begin match (peek s).kind with
+    | Token.VAR ->
+        ignore @@ advance s;
+        Some (parse_var_declaration s)
+    | _ -> Some (parse_statement s)
+    end
+  with ParseError (token, error) ->
+    synchronize s;
+    None
+
+and parse_var_declaration s =
+  let name =
+    match (peek s).kind with
+    | Token.IDENTIFIER _ -> advance s
+    | _ -> error (peek s) "Expect variable name"
+  in
+
+  let init =
+    match (peek s).kind with
+    | Token.EQUAL ->
+        ignore @@ advance s;
+        Some (parse_expression s)
+    | _ -> None
+  in
+
+  ignore @@ consume s Token.SEMICOLON "Expect ';' after variable declaration.";
+
+  Ast.Var (name, init)
+
+and parse_statement s =
+  match (peek s).kind with
+  | Token.PRINT ->
+      ignore @@ advance s;
+      parse_print_stmt s
+  | Token.LEFT_BRACE ->
+      ignore @@ advance s;
+      Ast.Block (parse_block s)
+  | _ -> parse_expr_stmt s
+
+and parse_block s =
+  let rec parse_block_h acc =
+    if (not (is_at_end s)) && (peek s).kind <> Token.RIGHT_BRACE then
+      parse_block_h (parse_declaration s :: acc)
+    else List.rev acc
+  in
+
+  let statements = parse_block_h [] |> List.filter_map (fun x -> x) in
+
+  consume s Token.RIGHT_BRACE "Expect '}' after block." |> ignore;
+
+  statements
+
+and parse_print_stmt s =
+  let value = parse_expression s in
+  ignore @@ consume s Token.SEMICOLON "Expect ';' after value.";
+  Ast.Print value
+
+and parse_expr_stmt s =
+  let expr = parse_expression s in
+  ignore @@ consume s Token.SEMICOLON "Expect ';' after expression.";
+  Ast.Expression expr
+
+and parse_expression s = parse_assignment s
+
+and parse_assignment s =
+  let expr = parse_equality s in
+
+  match (peek s).kind with
+  | Token.EQUAL ->
+      let equals = advance s in
+      let value = parse_assignment s in
+
+      begin match expr with
+      | Ast.Variable name -> Ast.Assign (name, value)
+      | _ -> error equals "Invalid assignment target."
+      end
+  | _ -> expr
 
 and parse_equality (s : parser_state) =
   let rec handle_eq curr_expr =
@@ -112,6 +214,7 @@ and parse_primary (s : parser_state) =
   | Token.STRING str ->
       ignore @@ advance s;
       Ast.Literal (Ast.String str)
+  | Token.IDENTIFIER _ -> Ast.Variable (advance s)
   | Token.LEFT_PAREN ->
       ignore @@ advance s;
       let expr = parse_expression s in
@@ -121,7 +224,7 @@ and parse_primary (s : parser_state) =
       Ast.Grouping expr
   | _ -> error (peek s) "Expect expression."
 
-let synchronize (s : parser_state) =
+and synchronize (s : parser_state) =
   let rec discard_tokens () =
     if is_at_end s then ()
     else if (previous s).kind = Token.SEMICOLON then ()
@@ -141,4 +244,11 @@ let synchronize (s : parser_state) =
 let parse tokens =
   let state = { tokens; current = 0 } in
 
-  try Some (parse_expression state) with ParseError _ -> None
+  let rec build_statements (acc : Ast.stmt option list) =
+    if is_at_end state then List.rev acc
+    else build_statements (parse_declaration state :: acc)
+  in
+
+  build_statements [] |> List.filter_map (fun x -> x)
+
+(* try Some (parse_expression state) with ParseError _ -> None *)
