@@ -1,3 +1,4 @@
 (library
  (name olox)
- (modules token scanner ast parser interpreter environment errors))
+ (modules token scanner types parser interpreter environment errors)
+ (libraries unix))

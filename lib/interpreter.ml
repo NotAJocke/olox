@@ -1,31 +1,42 @@
 open Errors
 
-type interpreter_state = { mutable env : Environment.t }
+let create () : Types.interpreter_state =
+  let globals = Environment.create () in
 
-let is_truthy = function Ast.Nil | Ast.Boolean false -> false | _ -> true
+  Environment.define globals "clock"
+    (Types.Callable
+       {
+         repr = "<builtin clock>";
+         arity = 0;
+         call = (fun _ _ -> Types.Number (Unix.gettimeofday ()));
+       });
+
+  { globals; env = globals }
+
+let is_truthy = function Types.Nil | Types.Boolean false -> false | _ -> true
 
 let is_equal a b =
   match (a, b) with
-  | Ast.Nil, Ast.Nil -> true
-  | Ast.Number x, Ast.Number y -> x = y
-  | Ast.String x, Ast.String y -> String.equal x y
-  | Ast.Boolean x, Ast.Boolean y -> x = y
+  | Types.Nil, Types.Nil -> true
+  | Types.Number x, Types.Number y -> x = y
+  | Types.String x, Types.String y -> String.equal x y
+  | Types.Boolean x, Types.Boolean y -> x = y
   | _ -> false
 
 let unwrap_number op literal =
   match literal with
-  | Ast.Number n -> n
+  | Types.Number n -> n
   | _ -> raise @@ RuntimeError (op, "Operand must be a number.")
 
-let rec evaluate s expr =
+let rec evaluate (s : Types.interpreter_state) expr =
   match expr with
-  | Ast.Literal v -> v
-  | Ast.Grouping group -> evaluate s group
-  | Ast.Unary (op, expr) -> evaluate_unary op (evaluate s expr)
-  | Ast.Binary (left, op, right) ->
+  | Types.Literal v -> v
+  | Types.Grouping group -> evaluate s group
+  | Types.Unary (op, expr) -> evaluate_unary op (evaluate s expr)
+  | Types.Binary (left, op, right) ->
       evaluate_binary op (evaluate s left) (evaluate s right)
-  | Ast.Variable expr -> Environment.get s.env expr
-  | Ast.Logical (left, op, right) ->
+  | Types.Variable expr -> Environment.get s.env expr
+  | Types.Logical (left, op, right) ->
       let left = evaluate s left in
 
       begin match op.kind with
@@ -34,20 +45,38 @@ let rec evaluate s expr =
       | Token.AND | Token.OR -> evaluate s right
       | _ -> failwith "Invalid logical operator"
       end
-  | Ast.Assign (name, value) ->
+  | Types.Assign (name, value) ->
       let value = evaluate s value in
       Environment.assign s.env name value;
 
       value
+  | Types.Call (callee, paren, args) -> (
+      let callee = evaluate s callee in
+      let args = List.map (evaluate s) args in
+
+      match callee with
+      | Types.Callable fn_obj ->
+          if List.length args <> fn_obj.arity then
+            raise
+              (RuntimeError
+                 ( paren,
+                   "Expected " ^ string_of_int fn_obj.arity
+                   ^ " arguments but got "
+                   ^ string_of_int (List.length args)
+                   ^ "." ));
+
+          fn_obj.call s args
+      | _ ->
+          raise (RuntimeError (paren, "Can only call functions and classes.")))
 
 and evaluate_unary op expr =
   match op.kind with
   | Token.MINUS -> begin
       let n = unwrap_number op expr in
-      Ast.Number (-.n)
+      Types.Number (-.n)
     end
-  | Token.BANG -> Ast.Boolean (not @@ is_truthy expr)
-  | _ -> Ast.Nil
+  | Token.BANG -> Types.Boolean (not @@ is_truthy expr)
+  | _ -> Types.Nil
 
 and evaluate_binary op left right =
   match op.kind with
@@ -55,21 +84,21 @@ and evaluate_binary op left right =
       let left = unwrap_number op left in
       let right = unwrap_number op right in
 
-      Ast.Number (left -. right)
+      Types.Number (left -. right)
   | Token.SLASH ->
       let left = unwrap_number op left in
       let right = unwrap_number op right in
 
-      Ast.Number (left /. right)
+      Types.Number (left /. right)
   | Token.STAR ->
       let left = unwrap_number op left in
       let right = unwrap_number op right in
 
-      Ast.Number (left *. right)
+      Types.Number (left *. right)
   | Token.PLUS -> begin
       match (left, right) with
-      | Ast.Number x, Ast.Number y -> Ast.Number (x +. y)
-      | Ast.String s1, Ast.String s2 -> Ast.String (s1 ^ s2)
+      | Types.Number x, Types.Number y -> Types.Number (x +. y)
+      | Types.String s1, Types.String s2 -> Types.String (s1 ^ s2)
       | _ ->
           raise
           @@ RuntimeError (op, "Operands must be two numbers or two strings.")
@@ -78,53 +107,48 @@ and evaluate_binary op left right =
       let left = unwrap_number op left in
       let right = unwrap_number op right in
 
-      Ast.Boolean (left > right)
+      Types.Boolean (left > right)
   | Token.GREATER_EQUAL ->
       let left = unwrap_number op left in
       let right = unwrap_number op right in
 
-      Ast.Boolean (left >= right)
+      Types.Boolean (left >= right)
   | Token.LESS ->
       let left = unwrap_number op left in
       let right = unwrap_number op right in
 
-      Ast.Boolean (left < right)
+      Types.Boolean (left < right)
   | Token.LESS_EQUAL ->
       let left = unwrap_number op left in
       let right = unwrap_number op right in
 
-      Ast.Boolean (left <= right)
-  | Token.BANG_EQUAL -> Ast.Boolean (not @@ is_equal left right)
-  | Token.EQUAL_EQUAL -> Ast.Boolean (is_equal left right)
+      Types.Boolean (left <= right)
+  | Token.BANG_EQUAL -> Types.Boolean (not @@ is_equal left right)
+  | Token.EQUAL_EQUAL -> Types.Boolean (is_equal left right)
   | _ -> failwith "Unreachable"
 
-(* let interpret expression = *)
-(* try *)
-(* begin *)
-(* let value = evaluate expression in *)
-(* print_endline @@ Ast.string_of_literal value; *)
-(* false *)
-(* end *)
-(* with RuntimeError (t, e) -> *)
-(* print_endline (e ^ "\n[line " ^ string_of_int t.line ^ "]"); *)
-(* true *)
-
-let rec execute s (stmt : Ast.stmt) =
+let rec execute (s : Types.interpreter_state) (stmt : Types.stmt) =
   match stmt with
-  | Ast.Block stmts ->
+  | Types.Block stmts ->
       let local_env = Environment.create_with_enclosing s.env in
       execute_block s stmts local_env
-  | Ast.Expression e -> ignore @@ evaluate s e
-  | Ast.Print e ->
+  | Types.Expression e -> ignore @@ evaluate s e
+  | Types.Function { name; params; body } ->
+      let fn = create_lox_fun name params body s.env in
+      Environment.define s.env name.lexeme fn
+  | Types.Print e ->
       let value = evaluate s e in
-      print_endline @@ Ast.string_of_literal value
-  | Ast.Var (key, value) ->
-      let v = match value with Some v -> evaluate s v | _ -> Ast.Nil in
+      print_endline @@ Types.string_of_literal value
+  | Types.Return (keyword, value) ->
+      let evaluated_value = evaluate s value in
+      raise @@ RuntimeReturn evaluated_value
+  | Types.Var (key, value) ->
+      let v = match value with Some v -> evaluate s v | _ -> Types.Nil in
       Environment.define s.env key.lexeme v
-  | Ast.If (cond, then_b, else_b) ->
+  | Types.If (cond, then_b, else_b) ->
       if is_truthy @@ evaluate s cond then execute s then_b
       else Option.iter (execute s) else_b
-  | Ast.While (cond, body) ->
+  | Types.While (cond, body) ->
       let rec exec_while () =
         if is_truthy @@ evaluate s cond then begin
           execute s body;
@@ -137,13 +161,34 @@ let rec execute s (stmt : Ast.stmt) =
 
 and execute_block s stmts new_env =
   let previous = s.env in
+  s.env <- new_env;
   try
-    s.env <- new_env;
     List.iter (execute s) stmts;
     s.env <- previous
-  with _ -> s.env <- previous
+  with e ->
+    s.env <- previous;
+    raise e
 
-let interpret state statements =
+and create_lox_fun name params body closure =
+  Types.Callable
+    {
+      arity = List.length params;
+      call =
+        (fun state arguments ->
+          let env = Environment.create_with_enclosing closure in
+
+          List.iter2
+            (fun param arg -> Environment.define env param.Token.lexeme arg)
+            params arguments;
+
+          try
+            execute_block state body env;
+            Types.Nil
+          with RuntimeReturn value -> value);
+      repr = "<fn " ^ name.lexeme ^ ">";
+    }
+
+let interpret (state : Types.interpreter_state) statements =
   let rec interpret_h stmts had_err =
     match stmts with
     | [] -> had_err

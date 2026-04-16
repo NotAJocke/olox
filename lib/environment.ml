@@ -1,15 +1,14 @@
 open Errors
+open Types
 
-type t = { values : (string, Ast.literal) Hashtbl.t; enclosing : t option }
+let create () = { values = Hashtbl.create 0; enclosing = None }
 
-let create () : t = { values = Hashtbl.create 0; enclosing = None }
-
-let create_with_enclosing enclosing : t =
+let create_with_enclosing enclosing =
   { values = Hashtbl.create 0; enclosing = Some enclosing }
 
-let define (env : t) name value = Hashtbl.add env.values name value
+let define env name value = Hashtbl.add env.values name value
 
-let rec get (env : t) (name : Token.t) : Ast.literal =
+let rec get env (name : Token.t) =
   match Hashtbl.find_opt env.values name.lexeme with
   | Some value -> value
   | None -> (
@@ -19,7 +18,7 @@ let rec get (env : t) (name : Token.t) : Ast.literal =
           raise
           @@ RuntimeError (name, "Undefined variable '" ^ name.lexeme ^ "'."))
 
-let rec assign (env : t) (name : Token.t) value =
+let rec assign env (name : Token.t) value =
   if Hashtbl.mem env.values name.lexeme then
     Hashtbl.replace env.values name.lexeme value
   else

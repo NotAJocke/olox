@@ -18,7 +18,7 @@ type parser_state = { tokens : Token.t list; mutable current : int }
 
   ```ocaml
   match (peek s).kind with
-  | Token.IDENTIFIER _ -> Ast.Variable (advance s)
+  | Token.IDENTIFIER _ -> Types.Variable (advance s)
                                         ^^^^^^^^^
   ```
 
@@ -59,6 +59,9 @@ let consume (s : parser_state) expected_kind msg =
 let rec parse_declaration s =
   try
     begin match (peek s).kind with
+    | Token.FUN ->
+        advance s |> ignore;
+        Some (parse_fun s "function")
     | Token.VAR ->
         ignore @@ advance s;
         Some (parse_var_declaration s)
@@ -67,6 +70,50 @@ let rec parse_declaration s =
   with ParseError (token, error) ->
     synchronize s;
     None
+
+and parse_fun s kind =
+  let rec parse_fun_params acc =
+    if List.length acc >= 255 then
+      error (peek s) "Can't have more than 255 parameters.";
+
+    match (peek s).kind with
+    | Token.COMMA ->
+        advance s |> ignore;
+        let ident =
+          match (peek s).kind with
+          | Token.IDENTIFIER _ -> advance s
+          | _ -> error (peek s) "Expect parameter name."
+        in
+        parse_fun_params (ident :: acc)
+    | _ -> List.rev acc
+  in
+
+  let name =
+    match (peek s).kind with
+    | Token.IDENTIFIER _ -> advance s
+    | _ -> error (peek s) ("Expect " ^ kind ^ " name.")
+  in
+
+  consume s Token.LEFT_PAREN ("Expect '(' after " ^ kind ^ " name.") |> ignore;
+
+  let params =
+    if (peek s).kind <> RIGHT_PAREN then begin
+      let ident =
+        match (peek s).kind with
+        | Token.IDENTIFIER _ -> advance s
+        | _ -> error (peek s) "Expect parameter name."
+      in
+      parse_fun_params [ ident ]
+    end
+    else []
+  in
+
+  consume s Token.RIGHT_PAREN "Expect ')' after parameters." |> ignore;
+  consume s Token.LEFT_BRACE ("Expect '{' before" ^ kind ^ "body.") |> ignore;
+
+  let body = parse_block s in
+
+  Types.Function { name; params; body }
 
 and parse_var_declaration s =
   let name =
@@ -85,7 +132,7 @@ and parse_var_declaration s =
 
   ignore @@ consume s Token.SEMICOLON "Expect ';' after variable declaration.";
 
-  Ast.Var (name, init)
+  Types.Var (name, init)
 
 and parse_statement s =
   match (peek s).kind with
@@ -98,12 +145,13 @@ and parse_statement s =
   | Token.PRINT ->
       ignore @@ advance s;
       parse_print_stmt s
+  | Token.RETURN -> parse_return_stmt s
   | Token.WHILE ->
       advance s |> ignore;
       parse_while_stmt s
   | Token.LEFT_BRACE ->
       ignore @@ advance s;
-      Ast.Block (parse_block s)
+      Types.Block (parse_block s)
   | _ -> parse_expr_stmt s
 
 and parse_for_stmt s =
@@ -140,15 +188,17 @@ and parse_for_stmt s =
   (* Desugaring *)
   let body =
     match increment with
-    | Some expr -> Ast.Block [ body; Ast.Expression expr ]
+    | Some expr -> Types.Block [ body; Types.Expression expr ]
     | None -> body
   in
 
-  let cond = Option.value condition ~default:(Ast.Literal (Ast.Boolean true)) in
-  let body = Ast.While (cond, body) in
+  let cond =
+    Option.value condition ~default:(Types.Literal (Types.Boolean true))
+  in
+  let body = Types.While (cond, body) in
 
   let body =
-    match init with Some stmt -> Ast.Block [ stmt; body ] | None -> body
+    match init with Some stmt -> Types.Block [ stmt; body ] | None -> body
   in
 
   body
@@ -178,12 +228,23 @@ and parse_if_stmt s =
     | _ -> None
   in
 
-  Ast.If (condition, then_branch, else_branch)
+  Types.If (condition, then_branch, else_branch)
 
 and parse_print_stmt s =
   let value = parse_expression s in
   ignore @@ consume s Token.SEMICOLON "Expect ';' after value.";
-  Ast.Print value
+  Types.Print value
+
+and parse_return_stmt s =
+  let keyword = advance s in
+  let value =
+    if (peek s).kind <> SEMICOLON then parse_expression s
+    else Types.Literal Types.Nil
+  in
+
+  consume s Token.SEMICOLON "Expect ';' after return value." |> ignore;
+
+  Types.Return (keyword, value)
 
 and parse_while_stmt s =
   consume s Token.LEFT_PAREN "Expect '(' after 'while'." |> ignore;
@@ -191,12 +252,12 @@ and parse_while_stmt s =
   consume s Token.RIGHT_PAREN "Expect ')' after while condition." |> ignore;
   let body = parse_statement s in
 
-  Ast.While (condition, body)
+  Types.While (condition, body)
 
 and parse_expr_stmt s =
   let expr = parse_expression s in
   ignore @@ consume s Token.SEMICOLON "Expect ';' after expression.";
-  Ast.Expression expr
+  Types.Expression expr
 
 and parse_expression s = parse_assignment s
 
@@ -209,7 +270,7 @@ and parse_assignment s =
       let value = parse_assignment s in
 
       begin match expr with
-      | Ast.Variable name -> Ast.Assign (name, value)
+      | Types.Variable name -> Types.Assign (name, value)
       | _ -> error equals "Invalid assignment target."
       end
   | _ -> expr
@@ -220,7 +281,7 @@ and parse_or s =
     | Token.OR ->
         let op = advance s in
         let right = parse_and s in
-        parse_or_h @@ Ast.Logical (expr, op, right)
+        parse_or_h @@ Types.Logical (expr, op, right)
     | _ -> expr
   in
 
@@ -233,7 +294,7 @@ and parse_and s =
     | Token.AND ->
         let op = advance s in
         let right = parse_equality s in
-        parse_and_h @@ Ast.Logical (expr, op, right)
+        parse_and_h @@ Types.Logical (expr, op, right)
     | _ -> expr
   in
 
@@ -247,7 +308,7 @@ and parse_equality (s : parser_state) =
         let op = advance s in
         let right = parse_comparaison s in
 
-        handle_eq (Ast.Binary (curr_expr, op, right))
+        handle_eq (Types.Binary (curr_expr, op, right))
     | _ -> curr_expr
   in
 
@@ -260,7 +321,7 @@ and parse_comparaison s =
     | Token.GREATER | Token.GREATER_EQUAL | Token.LESS | Token.LESS_EQUAL ->
         let op = advance s in
         let right = parse_term s in
-        handle_comp @@ Ast.Binary (current, op, right)
+        handle_comp @@ Types.Binary (current, op, right)
     | _ -> current
   in
 
@@ -273,7 +334,7 @@ and parse_term s =
     | Token.PLUS | Token.MINUS ->
         let op = advance s in
         let right = parse_factor s in
-        handle_term @@ Ast.Binary (current, op, right)
+        handle_term @@ Types.Binary (current, op, right)
     | _ -> current
   in
 
@@ -286,7 +347,7 @@ and parse_factor s =
     | Token.SLASH | Token.STAR ->
         let op = advance s in
         let right = parse_unary s in
-        handle_factor @@ Ast.Binary (current, op, right)
+        handle_factor @@ Types.Binary (current, op, right)
     | _ -> current
   in
 
@@ -298,34 +359,68 @@ and parse_unary s =
   | Token.BANG | Token.MINUS ->
       let op = advance s in
       let right = parse_unary s in
-      Ast.Unary (op, right)
-  | _ -> parse_primary s
+      Types.Unary (op, right)
+  | _ -> parse_call s
+
+and parse_call s =
+  let rec parse_call_h expr =
+    match (peek s).kind with
+    | Token.LEFT_PAREN ->
+        advance s |> ignore;
+        parse_call_h @@ finish_call s expr
+    | _ -> expr
+  in
+
+  let expr = parse_primary s in
+
+  parse_call_h expr
+
+and finish_call s callee =
+  let rec parse_args (args : Types.expr list) =
+    match (peek s).kind with
+    | Token.COMMA ->
+        advance s |> ignore;
+        if List.length args >= 255 then
+          error (peek s) "Can't have more than 255 arguments."
+        else parse_args (parse_expression s :: args)
+    | _ -> List.rev args
+  in
+
+  let arguments =
+    match (peek s).kind with
+    | Token.RIGHT_PAREN -> []
+    | _ -> parse_args [ parse_expression s ]
+  in
+
+  let paren = consume s Token.RIGHT_PAREN "Expect ')' after arguments." in
+
+  Types.Call (callee, paren, arguments)
 
 and parse_primary (s : parser_state) =
   match (peek s).kind with
   | Token.FALSE ->
       ignore @@ advance s;
-      Ast.Literal (Ast.Boolean false)
+      Types.Literal (Types.Boolean false)
   | Token.TRUE ->
       ignore @@ advance s;
-      Ast.Literal (Ast.Boolean true)
+      Types.Literal (Types.Boolean true)
   | Token.NIL ->
       ignore @@ advance s;
-      Ast.Literal Ast.Nil
+      Types.Literal Types.Nil
   | Token.NUMBER f ->
       ignore @@ advance s;
-      Ast.Literal (Ast.Number f)
+      Types.Literal (Types.Number f)
   | Token.STRING str ->
       ignore @@ advance s;
-      Ast.Literal (Ast.String str)
-  | Token.IDENTIFIER _ -> Ast.Variable (advance s)
+      Types.Literal (Types.String str)
+  | Token.IDENTIFIER _ -> Types.Variable (advance s)
   | Token.LEFT_PAREN ->
       ignore @@ advance s;
       let expr = parse_expression s in
 
       ignore @@ consume s Token.RIGHT_PAREN "Expect ')' after expression";
 
-      Ast.Grouping expr
+      Types.Grouping expr
   | _ -> error (peek s) "Expect expression."
 
 and synchronize (s : parser_state) =
@@ -348,7 +443,7 @@ and synchronize (s : parser_state) =
 let parse tokens =
   let state = { tokens; current = 0 } in
 
-  let rec build_statements (acc : Ast.stmt option list) =
+  let rec build_statements (acc : Types.stmt option list) =
     if is_at_end state then List.rev acc
     else build_statements (parse_declaration state :: acc)
   in

@@ -21,7 +21,7 @@ let runFile filename =
   print_endline ("Running file: " ^ filename);
 
   let source = In_channel.with_open_bin filename In_channel.input_all in
-  run { env = Environment.create () } source
+  run (Interpreter.create ()) source
 
 let rec runPrompt state =
   print_string "> ";
@@ -37,6 +37,6 @@ let () =
   let args = Sys.argv in
 
   match Array.length args with
-  | 1 -> runPrompt { env = Environment.create () }
+  | 1 -> runPrompt @@ Interpreter.create ()
   | 2 -> runFile args.(1)
   | _ -> printUsage ()

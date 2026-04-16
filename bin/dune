@@ -1,4 +1,4 @@
 (executable
  (public_name olox)
  (name main)
- (libraries olox))
+ (libraries unix olox))
