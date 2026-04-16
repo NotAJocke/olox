@@ -89,13 +89,69 @@ and parse_var_declaration s =
 
 and parse_statement s =
   match (peek s).kind with
+  | Token.FOR ->
+      advance s |> ignore;
+      parse_for_stmt s
+  | Token.IF ->
+      advance s |> ignore;
+      parse_if_stmt s
   | Token.PRINT ->
       ignore @@ advance s;
       parse_print_stmt s
+  | Token.WHILE ->
+      advance s |> ignore;
+      parse_while_stmt s
   | Token.LEFT_BRACE ->
       ignore @@ advance s;
       Ast.Block (parse_block s)
   | _ -> parse_expr_stmt s
+
+and parse_for_stmt s =
+  consume s Token.LEFT_PAREN "Expect '(' after 'for'." |> ignore;
+
+  let init =
+    match (peek s).kind with
+    | Token.SEMICOLON ->
+        advance s |> ignore;
+        None
+    | Token.VAR ->
+        advance s |> ignore;
+        Some (parse_var_declaration s)
+    | _ -> Some (parse_expr_stmt s)
+  in
+
+  let condition =
+    match (peek s).kind with
+    | Token.SEMICOLON -> None
+    | _ -> Some (parse_expression s)
+  in
+
+  consume s Token.SEMICOLON "Expect ';' after loop condition." |> ignore;
+
+  let increment =
+    match (peek s).kind with
+    | Token.RIGHT_PAREN -> None
+    | _ -> Some (parse_expression s)
+  in
+  consume s Token.RIGHT_PAREN "Expect ')' after for clauses." |> ignore;
+
+  let body = parse_statement s in
+
+  (* Desugaring *)
+  let body =
+    match increment with
+    | Some expr -> Ast.Block [ body; Ast.Expression expr ]
+    | None -> body
+  in
+
+  let cond = Option.value condition ~default:(Ast.Literal (Ast.Boolean true)) in
+  let body = Ast.While (cond, body) in
+
+  let body =
+    match init with Some stmt -> Ast.Block [ stmt; body ] | None -> body
+  in
+
+  body
 
 and parse_block s =
   let rec parse_block_h acc =
@@ -110,10 +166,32 @@ and parse_block s =
 
   statements
 
+and parse_if_stmt s =
+  consume s Token.LEFT_PAREN "Expect '(' after 'if'." |> ignore;
+  let condition = parse_expression s in
+  consume s Token.RIGHT_PAREN "Expect ')' after if condition." |> ignore;
+
+  let then_branch = parse_statement s in
+  let else_branch =
+    match (peek s).kind with
+    | Token.ELSE -> Some (parse_statement s)
+    | _ -> None
+  in
+
+  Ast.If (condition, then_branch, else_branch)
+
 and parse_print_stmt s =
   let value = parse_expression s in
   ignore @@ consume s Token.SEMICOLON "Expect ';' after value.";
   Ast.Print value
+
+and parse_while_stmt s =
+  consume s Token.LEFT_PAREN "Expect '(' after 'while'." |> ignore;
+  let condition = parse_expression s in
+  consume s Token.RIGHT_PAREN "Expect ')' after while condition." |> ignore;
+  let body = parse_statement s in
+
+  Ast.While (condition, body)
 
 and parse_expr_stmt s =
   let expr = parse_expression s in
@@ -123,7 +201,7 @@ and parse_expr_stmt s =
 and parse_expression s = parse_assignment s
 
 and parse_assignment s =
-  let expr = parse_equality s in
+  let expr = parse_or s in
 
   match (peek s).kind with
   | Token.EQUAL ->
@@ -135,6 +213,32 @@ and parse_assignment s =
       | _ -> error equals "Invalid assignment target."
       end
   | _ -> expr
+
+and parse_or s =
+  let rec parse_or_h expr =
+    match (peek s).kind with
+    | Token.OR ->
+        let op = advance s in
+        let right = parse_and s in
+        parse_or_h @@ Ast.Logical (expr, op, right)
+    | _ -> expr
+  in
+
+  let expr = parse_and s in
+  parse_or_h expr
+
+and parse_and s =
+  let rec parse_and_h expr =
+    match (peek s).kind with
+    | Token.AND ->
+        let op = advance s in
+        let right = parse_equality s in
+        parse_and_h @@ Ast.Logical (expr, op, right)
+    | _ -> expr
+  in
+
+  let expr = parse_equality s in
+  parse_and_h expr
 
 and parse_equality (s : parser_state) =
   let rec handle_eq curr_expr =

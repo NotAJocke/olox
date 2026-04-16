@@ -25,6 +25,15 @@ let rec evaluate s expr =
   | Ast.Binary (left, op, right) ->
       evaluate_binary op (evaluate s left) (evaluate s right)
   | Ast.Variable expr -> Environment.get s.env expr
+  | Ast.Logical (left, op, right) ->
+      let left = evaluate s left in
+
+      begin match op.kind with
+      | Token.OR when is_truthy left -> left
+      | Token.AND when not @@ is_truthy left -> left
+      | Token.AND | Token.OR -> evaluate s right
+      | _ -> failwith "Invalid logical operator"
+      end
   | Ast.Assign (name, value) ->
       let value = evaluate s value in
       Environment.assign s.env name value;
@@ -112,6 +121,19 @@ let rec execute s (stmt : Ast.stmt) =
   | Ast.Var (key, value) ->
       let v = match value with Some v -> evaluate s v | _ -> Ast.Nil in
       Environment.define s.env key.lexeme v
+  | Ast.If (cond, then_b, else_b) ->
+      if is_truthy @@ evaluate s cond then execute s then_b
+      else Option.iter (execute s) else_b
+  | Ast.While (cond, body) ->
+      let rec exec_while () =
+        if is_truthy @@ evaluate s cond then begin
+          execute s body;
+          exec_while ()
+        end
+        else ()
+      in
+
+      exec_while ()
 
 and execute_block s stmts new_env =
   let previous = s.env in
