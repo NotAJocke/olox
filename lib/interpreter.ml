@@ -11,7 +11,7 @@ let create () : Types.interpreter_state =
          call = (fun _ _ -> Types.Number (Unix.gettimeofday ()));
        });
 
-  { globals; env = globals }
+  { globals; env = globals; locals = Hashtbl.create 0 }
 
 let is_truthy = function Types.Nil | Types.Boolean false -> false | _ -> true
 
@@ -28,6 +28,12 @@ let unwrap_number op literal =
   | Types.Number n -> n
   | _ -> raise @@ RuntimeError (op, "Operand must be a number.")
 
+let lookup_var (s : Types.interpreter_state) (name : Token.t)
+    (expr : Types.expr) =
+  match Hashtbl.find_opt s.locals expr with
+  | Some distance -> Environment.get_at s.env distance name.lexeme
+  | None -> Environment.get s.globals name
+
 let rec evaluate (s : Types.interpreter_state) expr =
   match expr with
   | Types.Literal v -> v
@@ -35,7 +41,7 @@ let rec evaluate (s : Types.interpreter_state) expr =
   | Types.Unary (op, expr) -> evaluate_unary op (evaluate s expr)
   | Types.Binary (left, op, right) ->
       evaluate_binary op (evaluate s left) (evaluate s right)
-  | Types.Variable expr -> Environment.get s.env expr
+  | Types.Variable name -> lookup_var s name expr
   | Types.Logical (left, op, right) ->
       let left = evaluate s left in
 
@@ -47,7 +53,10 @@ let rec evaluate (s : Types.interpreter_state) expr =
       end
   | Types.Assign (name, value) ->
       let value = evaluate s value in
-      Environment.assign s.env name value;
+      begin match Hashtbl.find_opt s.locals expr with
+      | Some distance -> Environment.assign_at s.env distance name value
+      | None -> Environment.assign s.globals name value
+      end;
 
       value
   | Types.Call (callee, paren, args) -> (
@@ -204,3 +213,6 @@ let interpret (state : Types.interpreter_state) statements =
   in
 
   interpret_h statements false
+
+let resolve (s : Types.interpreter_state) (expr : Types.expr) (depth : int) =
+  Hashtbl.add s.locals expr depth

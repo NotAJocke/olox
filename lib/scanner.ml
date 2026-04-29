@@ -8,11 +8,6 @@ type scanner_state = {
   errors : string list;
 }
 
-let report line where message =
-  Printf.eprintf "[line %d] Error %s: %s\n%!" line where message
-
-let error line message = report line "" message
-
 module StringMap = Map.Make (String)
 
 let keywords =
@@ -77,7 +72,7 @@ let parse_string s =
   let s = to_end s in
 
   if is_at_end s then begin
-    error s.line "Unterminated string.";
+    Errors.error s.line "Unterminated string.";
     { s with errors = "Unterminated string." :: s.errors }
   end
   else begin
@@ -170,7 +165,7 @@ let rec scan_h (s : scanner_state) : Token.t list * string list =
       | c when is_digit c -> parse_number s
       | c when is_alpha c -> parse_identifier s
       | _ ->
-          error s.line "Unexpected character.";
+          Errors.error s.line "Unexpected character.";
           { s with errors = "Unexpected character." :: s.errors }
     in
 

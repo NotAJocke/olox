@@ -16,9 +16,21 @@ and environment = {
   enclosing : environment option;
 }
 
-and interpreter_state = { globals : environment; mutable env : environment }
+and interpreter_state = {
+  globals : environment;
+  mutable env : environment;
+  locals : (expr, int) Hashtbl.t;
+}
 
-type expr =
+and function_type = Type_None | Type_Function
+
+and resolver_state = {
+  interpreter : interpreter_state;
+  scopes : (string, bool) Hashtbl.t list;
+  current_function : function_type;
+}
+
+and expr =
   | Assign of Token.t * expr
   | Binary of expr * Token.t * expr
   | Call of expr * Token.t * expr list
