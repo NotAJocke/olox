@@ -19,7 +19,7 @@ and environment = {
 and interpreter_state = {
   globals : environment;
   mutable env : environment;
-  locals : (expr, int) Hashtbl.t;
+  locals : (expr * int) list ref;
 }
 
 and function_type = Type_None | Type_Function

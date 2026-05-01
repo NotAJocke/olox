@@ -11,7 +11,7 @@ let create () : Types.interpreter_state =
          call = (fun _ _ -> Types.Number (Unix.gettimeofday ()));
        });
 
-  { globals; env = globals; locals = Hashtbl.create 0 }
+  { globals; env = globals; locals = ref [] }
 
 let is_truthy = function Types.Nil | Types.Boolean false -> false | _ -> true
 
@@ -28,9 +28,15 @@ let unwrap_number op literal =
   | Types.Number n -> n
   | _ -> raise @@ RuntimeError (op, "Operand must be a number.")
 
+let rec find_local_depth locals expr =
+  match locals with
+  | [] -> None
+  | (candidate, depth) :: rest ->
+      if candidate == expr then Some depth else find_local_depth rest expr
+
 let lookup_var (s : Types.interpreter_state) (name : Token.t)
     (expr : Types.expr) =
-  match Hashtbl.find_opt s.locals expr with
+  match find_local_depth !(s.locals) expr with
   | Some distance -> Environment.get_at s.env distance name.lexeme
   | None -> Environment.get s.globals name
 
@@ -53,7 +59,7 @@ let rec evaluate (s : Types.interpreter_state) expr =
       end
   | Types.Assign (name, value) ->
       let value = evaluate s value in
-      begin match Hashtbl.find_opt s.locals expr with
+      begin match find_local_depth !(s.locals) expr with
       | Some distance -> Environment.assign_at s.env distance name value
       | None -> Environment.assign s.globals name value
       end;
@@ -215,4 +221,4 @@ let interpret (state : Types.interpreter_state) statements =
   interpret_h statements false
 
 let resolve (s : Types.interpreter_state) (expr : Types.expr) (depth : int) =
-  Hashtbl.add s.locals expr depth
+  s.locals := (expr, depth) :: !(s.locals)
