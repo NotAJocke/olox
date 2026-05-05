@@ -1,10 +1,12 @@
-var a = "global";
-{
-  fun showA() {
-    print a;
+class Person {
+  init(name, age) {
+    this.name = name;
+    this.age = age;
   }
-
-  showA(); // Should print "global"
-  var a = "block";
-  showA(); // Should STILL print "global"
+  greet() {
+    print "Hi, I'm " + this.name;
+  }
 }
+var p = Person("Alice", 30);
+p.greet();
+print p.age;

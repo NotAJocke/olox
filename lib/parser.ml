@@ -59,6 +59,9 @@ let consume (s : parser_state) expected_kind msg =
 let rec parse_declaration s =
   try
     begin match (peek s).kind with
+    | Token.CLASS ->
+        advance s |> ignore;
+        Some (parse_class s)
     | Token.FUN ->
         advance s |> ignore;
         Some (parse_fun s "function")
@@ -70,6 +73,26 @@ let rec parse_declaration s =
   with ParseError (token, error) ->
     synchronize s;
     None
+
+and parse_class s =
+  let rec parse_methods acc =
+    if (peek s).kind = Token.RIGHT_BRACE || is_at_end s then List.rev acc
+    else parse_methods (parse_fun s "method" :: acc)
+  in
+
+  let name =
+    match (peek s).kind with
+    | Token.IDENTIFIER _ -> advance s
+    | _ -> error (peek s) "Expect class name."
+  in
+
+  consume s Token.LEFT_BRACE "Expect '{' before class body." |> ignore;
+
+  let methods = parse_methods [] in
+
+  consume s Token.RIGHT_BRACE "Expect '}' after class body." |> ignore;
+
+  Types.Class { name; methods }
 
 and parse_fun s kind =
   let rec parse_fun_params acc =
@@ -271,6 +294,7 @@ and parse_assignment s =
 
       begin match expr with
       | Types.Variable name -> Types.Assign (name, value)
+      | Types.Get (obj, name) -> Types.Set { obj; name; value }
       | _ -> error equals "Invalid assignment target."
       end
   | _ -> expr
@@ -368,6 +392,14 @@ and parse_call s =
     | Token.LEFT_PAREN ->
         advance s |> ignore;
         parse_call_h @@ finish_call s expr
+    | Token.DOT ->
+        advance s |> ignore;
+        let name =
+          match (peek s).kind with
+          | Token.IDENTIFIER _ -> advance s
+          | _ -> error (peek s) "Expect property name after '.'."
+        in
+        parse_call_h @@ Types.Get (expr, name)
     | _ -> expr
   in
 
@@ -421,6 +453,7 @@ and parse_primary (s : parser_state) =
       ignore @@ consume s Token.RIGHT_PAREN "Expect ')' after expression";
 
       Types.Grouping expr
+  | Token.THIS -> Types.This (advance s)
   | _ -> error (peek s) "Expect expression."
 
 and synchronize (s : parser_state) =

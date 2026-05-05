@@ -9,6 +9,10 @@ let create () : Types.interpreter_state =
          repr = "<builtin clock>";
          arity = 0;
          call = (fun _ _ -> Types.Number (Unix.gettimeofday ()));
+         closure = Environment.create ();
+         params = None;
+         body = None;
+         is_initializer = false;
        });
 
   { globals; env = globals; locals = ref [] }
@@ -42,6 +46,33 @@ let lookup_var (s : Types.interpreter_state) (name : Token.t)
 
 let rec evaluate (s : Types.interpreter_state) expr =
   match expr with
+  | Types.Get (obj, name) ->
+      let evaluated_obj = evaluate s obj in
+      begin match evaluated_obj with
+      | Types.LoxInstance { klass; fields } -> (
+          match Hashtbl.find_opt fields name.lexeme with
+          | Some f -> f
+          | None -> begin
+              match Hashtbl.find_opt klass.methods name.lexeme with
+              | Some meth -> Types.Callable (bind_method { klass; fields } meth)
+              | None ->
+                  raise
+                  @@ RuntimeError
+                       (name, "Undefined property '" ^ name.lexeme ^ "'.")
+            end)
+      | _ -> failwith "unreachable"
+      end
+  | Types.Set { obj; value; name } ->
+      let evaluated_obj = evaluate s obj in
+
+      begin match evaluated_obj with
+      | Types.LoxInstance { klass; fields } ->
+          let evaluated_value = evaluate s value in
+          Hashtbl.replace fields name.lexeme evaluated_value;
+          evaluated_value
+      | _ -> raise @@ RuntimeError (name, "Only instances have fields.")
+      end
+  | Types.This keyword -> lookup_var s keyword expr
   | Types.Literal v -> v
   | Types.Grouping group -> evaluate s group
   | Types.Unary (op, expr) -> evaluate_unary op (evaluate s expr)
@@ -81,6 +112,28 @@ let rec evaluate (s : Types.interpreter_state) expr =
                    ^ "." ));
 
           fn_obj.call s args
+      | Types.LoxClass klass ->
+          let arity =
+            match Hashtbl.find_opt klass.methods "init" with
+            | Some f -> f.arity
+            | None -> 0
+          in
+
+          if List.length args <> arity then
+            raise
+              (RuntimeError
+                 ( paren,
+                   "Expected " ^ string_of_int arity ^ " arguments but got "
+                   ^ string_of_int (List.length args)
+                   ^ "." ));
+          let instance = { Types.klass; fields = Hashtbl.create 0 } in
+
+          begin match Hashtbl.find_opt klass.methods "init" with
+          | Some f -> (bind_method instance f).call s args |> ignore
+          | None -> ()
+          end;
+
+          Types.LoxInstance instance
       | _ ->
           raise (RuntimeError (paren, "Can only call functions and classes.")))
 
@@ -142,15 +195,35 @@ and evaluate_binary op left right =
   | Token.EQUAL_EQUAL -> Types.Boolean (is_equal left right)
   | _ -> failwith "Unreachable"
 
-let rec execute (s : Types.interpreter_state) (stmt : Types.stmt) =
+and execute (s : Types.interpreter_state) (stmt : Types.stmt) =
   match stmt with
+  | Types.Class { name; methods } ->
+      Environment.define s.env name.lexeme Types.Nil;
+
+      let meths = Hashtbl.create 0 in
+      List.iter
+        (fun meth ->
+          match meth with
+          | Types.Function { name; params; body } ->
+              let fn =
+                create_lox_fun name params body s.env
+                  (String.equal name.lexeme "init")
+              in
+              Hashtbl.add meths name.lexeme fn
+          | _ -> failwith "Class method must be a function")
+        methods;
+
+      let (klass : Types.lox_class) =
+        { name = name.lexeme; repr = name.lexeme; methods = meths }
+      in
+      Environment.assign s.env name (Types.LoxClass klass)
   | Types.Block stmts ->
       let local_env = Environment.create_with_enclosing s.env in
       execute_block s stmts local_env
   | Types.Expression e -> ignore @@ evaluate s e
   | Types.Function { name; params; body } ->
-      let fn = create_lox_fun name params body s.env in
-      Environment.define s.env name.lexeme fn
+      let fn = create_lox_fun name params body s.env false in
+      Environment.define s.env name.lexeme (Types.Callable fn)
   | Types.Print e ->
       let value = evaluate s e in
       print_endline @@ Types.string_of_literal value
@@ -184,24 +257,52 @@ and execute_block s stmts new_env =
     s.env <- previous;
     raise e
 
-and create_lox_fun name params body closure =
-  Types.Callable
-    {
-      arity = List.length params;
-      call =
-        (fun state arguments ->
-          let env = Environment.create_with_enclosing closure in
+and create_lox_fun name params body closure is_initializer =
+  {
+    arity = List.length params;
+    closure;
+    is_initializer;
+    params = Some params;
+    body = Some body;
+    call =
+      (fun state arguments ->
+        let env = Environment.create_with_enclosing closure in
 
-          List.iter2
-            (fun param arg -> Environment.define env param.Token.lexeme arg)
-            params arguments;
+        List.iter2
+          (fun param arg -> Environment.define env param.Token.lexeme arg)
+          params arguments;
 
-          try
-            execute_block state body env;
-            Types.Nil
-          with RuntimeReturn value -> value);
-      repr = "<fn " ^ name.lexeme ^ ">";
-    }
+        try
+          execute_block state body env;
+
+          if is_initializer then Environment.get_at closure 0 "this"
+          else Types.Nil
+        with RuntimeReturn value ->
+          if is_initializer then Environment.get_at closure 0 "this" else value);
+    repr = "<fn " ^ name.lexeme ^ ">";
+  }
+
+and bind_method (instance : Types.lox_instance) (meth : Types.lox_callable) :
+    Types.lox_callable =
+  let env = Environment.create_with_enclosing meth.closure in
+  Environment.define env "this" (Types.LoxInstance instance);
+  match (meth.params, meth.body) with
+  | Some params, Some body ->
+      {
+        meth with
+        closure = env;
+        call =
+          (fun state args ->
+            let call_env = Environment.create_with_enclosing env in
+            List.iter2
+              (fun p a -> Environment.define call_env p.Token.lexeme a)
+              params args;
+            try
+              execute_block state body call_env;
+              Types.Nil
+            with RuntimeReturn v -> v);
+      }
+  | _ -> meth
 
 let interpret (state : Types.interpreter_state) statements =
   let rec interpret_h stmts had_err =

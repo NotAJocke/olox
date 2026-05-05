@@ -26,6 +26,35 @@ let rec resolve (s : Types.resolver_state) (stmts : Types.stmt list) :
 
 and resolve_stmt s stmt =
   match stmt with
+  | Types.Class { name; methods } ->
+      let enclosing = s.current_class in
+      let (s : Types.resolver_state) =
+        { s with current_class = Types.In_Class }
+      in
+
+      let s_inner = declare s name in
+      let after_define = define s_inner name in
+
+      let after_scope = begin_scope after_define in
+      Hashtbl.add (List.hd after_scope.scopes) "this" true;
+
+      let after_methods =
+        List.fold_left
+          (fun s meth ->
+            match meth with
+            | Types.Function { name; params; body } ->
+                let declaration =
+                  if String.equal name.lexeme "init" then Types.Type_Init
+                  else Types.Type_Method
+                in
+                resolve_function s name params body declaration
+            | _ -> failwith "Unreachable")
+          after_scope methods
+      in
+
+      let after_scope = end_scope after_methods in
+
+      { after_scope with current_class = enclosing }
   | Types.Block stmts ->
       let s_inner = begin_scope s in
       let s_after_stmts = resolve s_inner stmts in
@@ -54,13 +83,17 @@ and resolve_stmt s stmt =
 
       after_else
   | Types.Print expr -> resolve_expr s expr
-  | Types.Return (_, value) ->
+  | Types.Return (keyword, value) ->
       if s.current_function = Types.Type_None then
         Errors.error 0 "Can't return from top-level code.";
 
       begin match value with
       | Types.Literal Types.Nil -> s
-      | _ -> resolve_expr s value
+      | _ ->
+          if s.current_function = Types.Type_Init then
+            Errors.error keyword.line
+              "Can't return a value from an initializer.";
+          resolve_expr s value
       end
   | Types.While (cond, body) ->
       let after_cond = resolve_expr s cond in
@@ -68,6 +101,14 @@ and resolve_stmt s stmt =
 
 and resolve_expr (s : Types.resolver_state) (expr : Types.expr) =
   match expr with
+  | Types.Set { obj; name; value } ->
+      let inner_s = resolve_expr s value in
+      resolve_expr inner_s obj
+  | Types.This keyword ->
+      if s.current_class = Types.No_Class then
+        Errors.error keyword.line "Can't use 'this' outside of a class.";
+      resolve_local s expr keyword
+  | Types.Get (obj, name) -> resolve_expr s obj
   | Types.Variable name ->
       if
         (not @@ List.is_empty s.scopes)

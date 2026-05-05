@@ -9,7 +9,12 @@ let run state source =
   if List.length errors > 0 then ()
   else begin
     let (resolver_s : Types.resolver_state) =
-      { interpreter = state; scopes = []; current_function = Types.Type_None }
+      {
+        interpreter = state;
+        scopes = [];
+        current_function = Types.Type_None;
+        current_class = Types.No_Class;
+      }
     in
     Resolver.resolve resolver_s statements |> ignore;
     let _had_runtime_error = Interpreter.interpret state statements in
