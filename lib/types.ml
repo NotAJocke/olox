@@ -29,7 +29,7 @@ and interpreter_state = {
 }
 
 and function_type = Type_None | Type_Function | Type_Method | Type_Init
-and class_type = No_Class | In_Class
+and class_type = No_Class | In_Class | In_Subclass
 
 and resolver_state = {
   interpreter : interpreter_state;
@@ -47,6 +47,7 @@ and expr =
   | Literal of literal
   | Logical of expr * Token.t * expr
   | Set of { obj : expr; name : Token.t; value : expr }
+  | Super of { keyword : Token.t; method_ : Token.t }
   | This of Token.t
   | Unary of Token.t * expr
   | Variable of Token.t
@@ -55,13 +56,14 @@ and lox_class = {
   name : string;
   repr : string;
   methods : (string, lox_callable) Hashtbl.t;
+  superclass : lox_class option;
 }
 
 and lox_instance = { klass : lox_class; fields : (string, literal) Hashtbl.t }
 
 and stmt =
   | Block of stmt list
-  | Class of { name : Token.t; methods : stmt list }
+  | Class of { name : Token.t; superclass : expr option; methods : stmt list }
   | Expression of expr
   | Function of { name : Token.t; params : Token.t list; body : stmt list }
   | If of expr * stmt * stmt option

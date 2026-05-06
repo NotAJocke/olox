@@ -26,7 +26,7 @@ let rec resolve (s : Types.resolver_state) (stmts : Types.stmt list) :
 
 and resolve_stmt s stmt =
   match stmt with
-  | Types.Class { name; methods } ->
+  | Types.Class { name; methods; superclass } ->
       let enclosing = s.current_class in
       let (s : Types.resolver_state) =
         { s with current_class = Types.In_Class }
@@ -35,7 +35,29 @@ and resolve_stmt s stmt =
       let s_inner = declare s name in
       let after_define = define s_inner name in
 
-      let after_scope = begin_scope after_define in
+      begin match superclass with
+      | Some sc -> begin
+          match sc with
+          | Types.Variable iden ->
+              if String.equal iden.lexeme name.lexeme then
+                Errors.error iden.line "A class can't inherit from itself."
+          | _ -> failwith "Unreachable"
+        end
+      | None -> ()
+      end;
+
+      let after_superclass =
+        match superclass with
+        | Some sc ->
+            let s = { s with current_class = Types.In_Subclass } in
+            let sc_resolved = resolve_expr s sc in
+            let after_scope = begin_scope sc_resolved in
+            Hashtbl.add (List.hd after_scope.scopes) "super" true;
+            after_scope
+        | None -> after_define
+      in
+
+      let after_scope = begin_scope after_superclass in
       Hashtbl.add (List.hd after_scope.scopes) "this" true;
 
       let after_methods =
@@ -54,7 +76,13 @@ and resolve_stmt s stmt =
 
       let after_scope = end_scope after_methods in
 
-      { after_scope with current_class = enclosing }
+      let after_after_sc =
+        match superclass with
+        | Some sc -> end_scope after_scope
+        | _ -> after_scope
+      in
+
+      { after_after_sc with current_class = enclosing }
   | Types.Block stmts ->
       let s_inner = begin_scope s in
       let s_after_stmts = resolve s_inner stmts in
@@ -107,6 +135,17 @@ and resolve_expr (s : Types.resolver_state) (expr : Types.expr) =
   | Types.This keyword ->
       if s.current_class = Types.No_Class then
         Errors.error keyword.line "Can't use 'this' outside of a class.";
+      resolve_local s expr keyword
+  | Types.Super { keyword; _ } ->
+      begin match s.current_class with
+      | Types.No_Class ->
+          Errors.error keyword.line "Can't use 'super' outside of a class."
+      | Types.In_Class ->
+          Errors.error keyword.line
+            "Can't use 'super' in a class with no superclass."
+      | Types.In_Subclass -> ()
+      end;
+
       resolve_local s expr keyword
   | Types.Get (obj, name) -> resolve_expr s obj
   | Types.Variable name ->

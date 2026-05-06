@@ -1,12 +1,14 @@
-class Person {
-  init(name, age) {
-    this.name = name;
-    this.age = age;
-  }
-  greet() {
-    print "Hi, I'm " + this.name;
+class Doughnut {
+  cook() {
+    print "Fry until golden brown.";
   }
 }
-var p = Person("Alice", 30);
-p.greet();
-print p.age;
+
+class BostonCream < Doughnut {
+  cook() {
+    super.cook();
+    print "Pipe full of custard and coat with chocolate.";
+  }
+}
+
+BostonCream().cook();

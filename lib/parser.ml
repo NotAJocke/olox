@@ -86,13 +86,26 @@ and parse_class s =
     | _ -> error (peek s) "Expect class name."
   in
 
+  let superclass =
+    match (peek s).kind with
+    | Token.LESS ->
+        advance s |> ignore;
+        begin match (peek s).kind with
+        | Token.IDENTIFIER _ -> Some (Types.Variable (advance s))
+        | _ ->
+            Errors.error (peek s).line "Expect superclass name.";
+            None
+        end
+    | _ -> None
+  in
+
   consume s Token.LEFT_BRACE "Expect '{' before class body." |> ignore;
 
   let methods = parse_methods [] in
 
   consume s Token.RIGHT_BRACE "Expect '}' after class body." |> ignore;
 
-  Types.Class { name; methods }
+  Types.Class { name; methods; superclass }
 
 and parse_fun s kind =
   let rec parse_fun_params acc =
@@ -454,6 +467,18 @@ and parse_primary (s : parser_state) =
 
       Types.Grouping expr
   | Token.THIS -> Types.This (advance s)
+  | Token.SUPER ->
+      let keyword = advance s in
+
+      consume s Token.DOT "Expect '.' after 'super'." |> ignore;
+
+      let method_ =
+        match (peek s).kind with
+        | Token.IDENTIFIER _ -> advance s
+        | _ -> raise @@ ParseError (peek s, "Expect superclass method name.")
+      in
+
+      Types.Super { keyword; method_ }
   | _ -> error (peek s) "Expect expression."
 
 and synchronize (s : parser_state) =

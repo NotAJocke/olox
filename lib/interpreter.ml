@@ -55,10 +55,16 @@ let rec evaluate (s : Types.interpreter_state) expr =
           | None -> begin
               match Hashtbl.find_opt klass.methods name.lexeme with
               | Some meth -> Types.Callable (bind_method { klass; fields } meth)
-              | None ->
-                  raise
-                  @@ RuntimeError
-                       (name, "Undefined property '" ^ name.lexeme ^ "'.")
+              | None -> (
+                  match klass.superclass with
+                  | Some superclass
+                    when Hashtbl.mem superclass.methods name.lexeme ->
+                      Types.Callable
+                        (Hashtbl.find superclass.methods name.lexeme)
+                  | _ ->
+                      raise
+                      @@ RuntimeError
+                           (name, "Undefined property '" ^ name.lexeme ^ "'."))
             end)
       | _ -> failwith "unreachable"
       end
@@ -73,6 +79,27 @@ let rec evaluate (s : Types.interpreter_state) expr =
       | _ -> raise @@ RuntimeError (name, "Only instances have fields.")
       end
   | Types.This keyword -> lookup_var s keyword expr
+  | Types.Super { keyword; method_ } ->
+      let distance = find_local_depth !(s.locals) expr |> Option.get in
+      let superclass =
+        match Environment.get_at s.env distance "super" with
+        | Types.LoxClass klass -> klass
+        | _ -> failwith "Unreachable"
+      in
+      let instance =
+        match Environment.get_at s.env (distance - 1) "this" with
+        | Types.LoxInstance inst -> inst
+        | _ -> failwith "Unreachable"
+      in
+      let meth =
+        match Hashtbl.find_opt superclass.methods method_.lexeme with
+        | Some m -> m
+        | None ->
+            raise
+            @@ RuntimeError
+                 (keyword, "Undefined property '" ^ method_.lexeme ^ "'.")
+      in
+      Types.Callable (bind_method instance meth)
   | Types.Literal v -> v
   | Types.Grouping group -> evaluate s group
   | Types.Unary (op, expr) -> evaluate_unary op (evaluate s expr)
@@ -197,8 +224,30 @@ and evaluate_binary op left right =
 
 and execute (s : Types.interpreter_state) (stmt : Types.stmt) =
   match stmt with
-  | Types.Class { name; methods } ->
+  | Types.Class { name; methods; superclass } ->
+      let sc =
+        match superclass with
+        | Some superclass ->
+            let evaluated = evaluate s superclass in
+            begin match evaluated with
+            | LoxClass klass -> Some klass
+            | _ -> raise @@ RuntimeError (name, "Superclass must be a class.")
+            end
+        | None -> None
+      in
+
       Environment.define s.env name.lexeme Types.Nil;
+
+      let s =
+        match sc with
+        | Some sc ->
+            let new_env =
+              { s with env = Environment.create_with_enclosing s.env }
+            in
+            Environment.define new_env.env "super" (Types.LoxClass sc);
+            new_env
+        | None -> s
+      in
 
       let meths = Hashtbl.create 0 in
       List.iter
@@ -214,8 +263,20 @@ and execute (s : Types.interpreter_state) (stmt : Types.stmt) =
         methods;
 
       let (klass : Types.lox_class) =
-        { name = name.lexeme; repr = name.lexeme; methods = meths }
+        {
+          name = name.lexeme;
+          repr = name.lexeme;
+          methods = meths;
+          superclass = sc;
+        }
       in
+
+      let s =
+        match sc with
+        | Some sc -> { s with env = Option.get s.env.enclosing }
+        | None -> s
+      in
+
       Environment.assign s.env name (Types.LoxClass klass)
   | Types.Block stmts ->
       let local_env = Environment.create_with_enclosing s.env in
